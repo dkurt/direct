@@ -73,6 +73,9 @@ class DataDimensionality:
 
 
 class Engine(ABC, DataDimensionality):
+    """Main Engine of DIRECT.
+
+    """
     def __init__(
         self,
         cfg: BaseConfig,
@@ -83,6 +86,25 @@ class Engine(ABC, DataDimensionality):
         mixed_precision: bool = False,
         **models: Dict[str, nn.Module],
     ):
+        """Inits Engine.
+
+        Parameters
+        ----------
+        cfg: BaseConfig
+            Experiment configuration.
+        model: nn.Module
+            Model.
+        device: int
+            Number of device.
+        forward_operator: Optional[Callable]
+            Base forward operator.
+        backward_operator: Optional[Callable]
+            Base backward operator.
+        mixed_precision: bool
+            Use mixed precision. Default: False.
+        **models: Dict[str, nn.Module]
+            Other models.
+        """
         self.logger = logging.getLogger(type(self).__name__)
 
         self.cfg = cfg
@@ -107,6 +129,7 @@ class Engine(ABC, DataDimensionality):
 
     @abstractmethod
     def build_loss(self) -> Dict:
+        """Should be implemented by child class."""
         pass
 
     @staticmethod
@@ -134,7 +157,7 @@ class Engine(ABC, DataDimensionality):
         loss_fns: Optional[Dict[str, Callable]] = None,
         regularizer_fns: Optional[Dict[str, Callable]] = None,
     ) -> DoIterationOutput:
-        """This is a placeholder for the iteration function.
+        """This is a placeholder for the iteration function and needs to be implemented by child class.
 
         This needs to perform the backward pass. If using mixed-precision you need to implement `autocast` as well in
         this function. It is recommended you raise an error if `self.mixed_precision` is true but mixed precision is not
@@ -516,8 +539,7 @@ class Engine(ABC, DataDimensionality):
         num_workers: int = 6,
     ) -> None:
         self.logger.info("Starting training.")
-        # Can consider not to make this a member of self, but that requires that optimizer is passed to
-        # training_loop()
+        # Can consider not to make this a member of self, but that requires that optimizer is passed to training_loop()
         self.__optimizer = optimizer
         self.__lr_scheduler = lr_scheduler
 
@@ -650,49 +672,6 @@ class Engine(ABC, DataDimensionality):
     @abstractmethod
     def evaluate(self, *args, **kwargs):  # noqa
         pass
-
-    @staticmethod
-    def view_as_complex(data):
-        """Returns a view of input as a complex tensor. For an input tensor of size (N, ..., 2) where the last dimension
-        of size 2 represents the real and imaginary components of complex numbers, this function returns a new complex
-        tensor of size (N, ...).
-
-        Parameters
-        ----------
-        data: torch.Tensor
-            Tensor with non-complex torch.dtype and final axis is complex (shape 2).
-
-        Returns
-        -------
-        torch.Tensor: Complex-valued tensor `data`.
-        """
-        if not data.shape[-1] == 2:
-            raise ValueError(
-                f"Not a complex tensor. Complex axis needs to be last and have size 2." f" Got {data.shape[-1]}"
-            )
-
-        return torch.view_as_complex(data)
-
-    @staticmethod
-    def view_as_real(data):
-        """Returns a view of data as a real tensor. For an input complex tensor of size (N, ...) this function returns a
-        new real tensor of size (N, ..., 2) where the last dimension of size 2 represents the real and imaginary
-        components of complex numbers.
-
-        Parameters
-        ----------
-        data: torch.Tensor
-            Tensor with complex torch.dtype
-
-        Returns
-        -------
-        torch.Tensor: Real-valued tensor `data`, where last axis is of shape 2 denoting the complex axis.
-        """
-
-        if not data.is_complex():
-            raise ValueError(f"Not a complex tensor. Got {data.dtype}.")
-
-        return torch.view_as_real(data)
 
     @abstractmethod
     def process_output(self, *args, **kwargs):  # noqa
