@@ -9,3 +9,6 @@ coverage:
 
     # do not run coverage on patch nor changes
     patch: false
+
+ignore:
+  - "**/*.pyx" # ignore cython files  
