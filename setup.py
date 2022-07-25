@@ -91,6 +91,10 @@ setup(
     zip_safe=False,
     cmdclass={"build_ext": _build_ext},
     ext_modules=[
-        Extension("direct.common._poisson", sources=[str(pathlib.Path(".") / "direct" / "common" / "_poisson.pyx")])
+        Extension("direct.common._poisson", sources=[str(pathlib.Path(".") / "direct" / "common" / "_poisson.pyx")]),
+        Extension(
+            "direct.ssl._fill_gaussian_ssdu",
+            sources=[str(pathlib.Path(".") / "direct" / "ssl" / "_fill_gaussian_ssdu.pyx")],
+        ),
     ],
 )
