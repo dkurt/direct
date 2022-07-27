@@ -864,9 +864,9 @@ class VariableDensityPoissonMaskFunc(BaseMaskFunc):
         if return_acs:
             return torch.from_numpy(
                 self.centered_disk_mask((num_rows, num_cols), center_fraction)[np.newaxis, ..., np.newaxis]
-            )
+            ).bool()
         mask = self.poisson(num_rows, num_cols, center_fraction, acceleration, cython_seed)
-        return torch.from_numpy(mask[np.newaxis, ..., np.newaxis])
+        return torch.from_numpy(mask[np.newaxis, ..., np.newaxis]).bool()
 
     def poisson(
         self,
