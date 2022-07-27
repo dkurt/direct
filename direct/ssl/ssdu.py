@@ -4,12 +4,14 @@
 import contextlib
 from enum import Enum
 from math import ceil
-from typing import List, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 
 import numpy as np
 import torch
 
+from direct.data.transforms import apply_mask
 from direct.ssl._fill_gaussian_ssdu import fill_gaussian_ssdu
+from direct.utils import DirectModule
 
 __all__ = [
     "GaussianMaskSplitter",
@@ -33,7 +35,7 @@ class MaskSplitterSplitType(str, Enum):
     gaussian = "gaussian"
 
 
-class MaskSplitter:
+class MaskSplitter(DirectModule):
     r"""Splits input mask :math:`A` into two disjoint masks :math:`B`, :math:`C` such that
 
     .. math::
@@ -56,31 +58,50 @@ class MaskSplitter:
 
     def __init__(
         self,
+        backward_operator: Callable,
         split_type: MaskSplitterSplitType,
         ratio: float = 0.5,
         acs_region: Union[List[int], Tuple[int, int]] = (4, 4),
+        use_seed: bool = True,
+        kspace_key: str = "masked_kspace",
+        target_key: str = "target",
     ):
         r"""Inits :class:`MaskSplitter`.
 
         Parameters
         ----------
+        backward_operator: Callable
+            The backward operator, e.g. some form of inverse FFT (centered or uncentered).
         split_type: MaskSplitterSplitType
             Type of mask splitting. Can be `gaussian` or `uniform`.
         ratio: float
             Split ratio such that :math:`ratio \approx \frac{|A|}{|B|}. Default: 0.5.
         acs_region: list or tuple of ints
             Size of ACS region to include in training (input) mask. Default: (4, 4).
+        use_seed: bool
+            If true, a pseudo-random number based on the filename is computed so that every slice of the volume get
+            the same mask every time. Default: True.
+        kspace_key: str
+            K-space key. Default `masked_kspace`.
+        target_key: str
+            Target key. Default `target`.
 
         """
+        super().__init__()
         assert split_type in ["gaussian", "uniform"]
         self.split_type = split_type
         self.ratio = ratio
         self.acs_region = acs_region
 
+        self.backward_operator = backward_operator
+        self.target_key = target_key
+        self.kspace_key = kspace_key
+
+        self.use_seed = use_seed
         self.rng = np.random.RandomState()
 
     def gaussian_split(
-        self, mask: torch.Tensor, std_scale: float = 3.0, seed: Union[Tuple[int, ...], List[int], int] = 0
+        self, mask: torch.Tensor, std_scale: float = 3.0, seed: Union[Tuple[int, ...], List[int], int, None] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Splits `mask` into an input and target disjoint masks using a bivariate Gaussian sampling.
 
@@ -90,7 +111,8 @@ class MaskSplitter:
             Masking tensor to split.
         std_scale: float = 3.0
             This is used to calculate the standard deviation of the Gaussian distribution. Default: 3.0.
-        seed: int, list of tuple of ints
+        seed: int, list or tuple of ints or None
+            Default: None.
 
         Returns
         -------
@@ -116,7 +138,9 @@ class MaskSplitter:
         nonzero_mask_count = int(ceil(mask.sum() * self.ratio))
 
         with temp_seed(self.rng, seed):
-            if isinstance(seed, (tuple, list)):
+            if seed is None:
+                seed = np.random.randint(0, 1e5)
+            elif isinstance(seed, (tuple, list)):
                 seed = int(np.mean(seed))
             elif isinstance(seed, int):
                 seed = seed
@@ -139,7 +163,7 @@ class MaskSplitter:
         return input_mask, target_mask
 
     def uniform_split(
-        self, mask: torch.Tensor, seed: Union[Tuple[int, ...], List[int], int] = 0
+        self, mask: torch.Tensor, seed: Union[Tuple[int, ...], List[int], int, None] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Splits `mask` into an input and target disjoint masks using a uniform sampling.
 
@@ -147,7 +171,8 @@ class MaskSplitter:
         ----------
         mask: torch.Tensor
             Masking tensor to split.
-        seed: int, list of tuple of ints
+        seed: int, list or tuple of ints or None
+            Default: None.
 
         Returns
         -------
@@ -189,22 +214,86 @@ class MaskSplitter:
     def __call__(self, *args, **kwargs):
         raise NotImplementedError(f"Must be implemented by inheriting class.")
 
+    @staticmethod
+    def _unsqueeze_mask(masks: Iterable[torch.Tensor]) -> List[torch.Tensor]:
+        return [mask[None, ..., None] for mask in masks]
+
 
 class UniformMaskSplitter(MaskSplitter):
-    def __init__(self, ratio: float = 0.5, acs_region: Union[List[int], Tuple[int, int]] = (4, 4)):
-        super().__init__(split_type=MaskSplitterSplitType.uniform, ratio=ratio, acs_region=acs_region)
+    def __init__(
+        self,
+        backward_operator: Callable,
+        ratio: float = 0.5,
+        acs_region: Union[List[int], Tuple[int, int]] = (4, 4),
+        use_seed: bool = True,
+        kspace_key: str = "masked_kspace",
+        target_key: str = "target",
+    ):
+        super().__init__(
+            backward_operator=backward_operator,
+            split_type=MaskSplitterSplitType.uniform,
+            ratio=ratio,
+            acs_region=acs_region,
+            use_seed=use_seed,
+            kspace_key=kspace_key,
+            target_key=target_key,
+        )
 
-    def __call__(
-        self, sampling_mask: torch.Tensor, seed: Union[Tuple[int, ...], List[int], int]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.uniform_split(mask=sampling_mask, seed=seed)
+    def __call__(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+        sampling_mask = sample["sampling_mask"].clone().squeeze()
+        kspace = sample[self.kspace_key].clone()
+
+        seed = None if not self.use_seed else tuple(map(ord, str(sample["filename"])))
+        input_mask, target_mask = self._unsqueeze_mask(self.uniform_split(mask=sampling_mask, seed=seed))
+        del sampling_mask
+
+        # TODO: See which keys we actually need, or maybe can be deleted by DeleteKey transform
+        sample[self.kspace_key], _ = apply_mask(kspace, input_mask)
+        sample[self.kspace_key + "_sampling_mask"] = input_mask
+        target_kspace, _ = apply_mask(kspace, target_mask)
+        del kspace
+        sample[self.target_key] = self.backward_operator(target_kspace, dim=(1, 2))
+        sample[self.target_key + "_sampling_mask"] = target_mask
+        return sample
 
 
 class GaussianMaskSplitter(MaskSplitter):
-    def __init__(self, ratio: float = 0.5, acs_region: Union[List[int], Tuple[int, int]] = (4, 4)):
-        super().__init__(split_type=MaskSplitterSplitType.gaussian, ratio=ratio, acs_region=acs_region)
+    def __init__(
+        self,
+        backward_operator: Callable,
+        ratio: float = 0.5,
+        acs_region: Union[List[int], Tuple[int, int]] = (4, 4),
+        use_seed: bool = True,
+        kspace_key: str = "masked_kspace",
+        target_key: str = "target",
+        std_scale: float = 3.0,
+    ):
+        super().__init__(
+            backward_operator=backward_operator,
+            split_type=MaskSplitterSplitType.gaussian,
+            ratio=ratio,
+            acs_region=acs_region,
+            use_seed=use_seed,
+            kspace_key=kspace_key,
+            target_key=target_key,
+        )
+        self.std_scale = std_scale
 
-    def __call__(
-        self, sampling_mask: torch.Tensor, std_scale: float, seed: Union[Tuple[int, ...], List[int], int]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.gaussian_split(mask=sampling_mask, std_scale=std_scale, seed=seed)
+    def __call__(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+        sampling_mask = sample["sampling_mask"].clone().squeeze()
+        kspace = sample[self.kspace_key].clone()
+
+        seed = None if not self.use_seed else tuple(map(ord, str(sample["filename"])))
+        input_mask, target_mask = self._unsqueeze_mask(
+            self.gaussian_split(mask=sampling_mask, seed=seed, std_scale=self.std_scale)
+        )
+        del sampling_mask
+
+        # TODO: See which keys we actually need, or maybe can be deleted by DeleteKey transform
+        sample[self.kspace_key], _ = apply_mask(kspace, input_mask)
+        sample[self.kspace_key + "_sampling_mask"] = input_mask
+        target_kspace, _ = apply_mask(kspace, target_mask)
+        del kspace
+        sample[self.target_key] = self.backward_operator(target_kspace, dim=(1, 2))
+        sample[self.target_key + "_sampling_mask"] = target_mask
+        return sample
