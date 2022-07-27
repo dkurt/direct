@@ -160,37 +160,62 @@ class CreateSamplingMask(DirectModule):
 class ApplyMask(DirectModule):
     """Data Transformer for training MRI reconstruction models.
 
-    Masks the k-space using a sampling mask.
+    Masks the input k-space (with key `input_kspace_key`) using a sampling mask with key `sampling_mask_key` onto
+    a new masked k-space with key `target_kspace_key`.
     """
 
-    def __init__(self) -> None:
-        """Inits :class:`ApplyMask`."""
+    def __init__(
+        self,
+        sampling_mask_key: str = "sampling_mask",
+        input_kspace_key: str = "kspace",
+        target_kspace_key: str = "masked_kspace",
+    ) -> None:
+        """Inits :class:`ApplyMask`.
+
+        Parameters
+        ----------
+        sampling_mask_key: str
+            Default: "sampling_mask".
+        input_kspace_key: str
+            Default: "kspace".
+        target_kspace_key: str
+            Default "masked_kspace".
+        """
         super().__init__()
         self.logger = logging.getLogger(type(self).__name__)
+
+        self.sampling_mask_key = sampling_mask_key
+        self.input_kspace_key = input_kspace_key
+        self.target_kspace_key = target_kspace_key
 
     def __call__(self, sample: Dict[str, Any]) -> Dict[str, Any]:
         """Calls :class:`ApplyMask`.
 
-        This assumes that a `sampling_mask` is present in the sample.
+        Applies mask with key `sampling_mask_key` onto kspace `input_kspace_key`. Result is stored as a tensor with
+        key `target_kspace_key`.
 
         Parameters
         ----------
         sample: Dict[str, Any]
-            Dict sample containing key `kspace`.
+            Dict sample containing keys `sampling_mask_key` and `input_kspace_key`.
 
         Returns
         -------
         Dict[str, Any]
-            Sample with new key `masked_kspace`.
+            Sample with (new) key `target_kspace_key`.
         """
-        kspace = sample["kspace"]
+        assert (
+            self.input_kspace_key in sample
+        ), f"Key {self.input_kspace_key} corresponding to `input_kspace_key` not found in sample."
+        input_kspace = sample[self.input_kspace_key]
 
-        assert "sampling_mask" in sample, "Key 'sampling_mask' not found in sample."
-        sampling_mask = sample["sampling_mask"]
+        assert (
+            self.sampling_mask_key in sample
+        ), f"Key {self.sampling_mask_key} corresponding to `sampling_mask_key` not found in sample."
+        sampling_mask = sample[self.sampling_mask_key]
 
-        masked_kspace, _ = T.apply_mask(kspace, sampling_mask)
-        sample["masked_kspace"] = masked_kspace
-
+        target_kspace, _ = T.apply_mask(input_kspace, sampling_mask)
+        sample[self.target_kspace_key] = target_kspace
         return sample
 
 
@@ -915,7 +940,7 @@ def build_mri_transforms(
             backward_operator=backward_operator,
             type_reconstruction="rss",
         ),
-        ApplyMask(),
+        ApplyMask(sampling_mask_key="sampling_mask", input_kspace_key="kspace", target_kspace_key="masked_kspace"),
     ]
     if estimate_body_coil_image and mask_func is not None:
         mri_transforms.append(EstimateBodyCoilImage(mask_func, backward_operator=backward_operator, use_seed=use_seed))
