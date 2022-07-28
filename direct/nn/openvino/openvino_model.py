@@ -1,8 +1,8 @@
 import io
 
 import torch
-from openvino.inference_engine import IECore
 from openvino_extensions import get_extensions_path
+from openvino.runtime import Core
 from torch import nn
 
 
@@ -103,8 +103,8 @@ class OpenVINOModel(nn.Module):
             if k in kwargs:
                 self.inputs += tuple([kwargs[k]])
 
-        ie = IECore()
-        ie.add_extension(get_extensions_path(), "CPU")
+        ie = Core()
+        ie.add_extension(get_extensions_path())
 
         convert_layer(self.model)
 
@@ -120,8 +120,8 @@ class OpenVINOModel(nn.Module):
                 output_names=output_names,
             )
 
-            net = ie.read_network(buf.getvalue(), b"", init_from_buffer=True)
-            self.exec_net = ie.load_network(net, "CPU")
+            net = ie.read_model(buf.getvalue(), b"")
+            self.exec_net = ie.compile_model(net, "CPU").create_infer_request()
 
     def postprocess(self, res):
         """This function custom the output of an OpenVINO model to the output format of the original PyTorch model.
