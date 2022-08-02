@@ -50,7 +50,7 @@ class ComplexMultiplicationONNX(ONNX):
     @staticmethod
     def symbolic(g, input_tensor, other_tensor):
         """ONNX node definition for custom nodes."""
-        return g.op("ComplexMultiplication", input_tensor, other_tensor, is_conj_i=1)
+        return g.op("ComplexMultiplication", input_tensor, other_tensor)
 
     @staticmethod
     def forward(ctx, input_tensor, other_tensor):  # pylint: disable=unused-argument
