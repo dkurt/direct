@@ -46,11 +46,11 @@ class ComplexMultiplicationONNX(ONNX):
     """This class is used as a simple wrapper over original complex multiplication function.
     Creates a single fused node in ONNX graph.
     """
-
+    
     @staticmethod
     def symbolic(g, input_tensor, other_tensor):
         """ONNX node definition for custom nodes."""
-        return g.op("ComplexMultiplication", input_tensor, other_tensor)
+        return g.op("ComplexMultiplication", input_tensor, other_tensor, is_conj_i=1)
 
     @staticmethod
     def forward(ctx, input_tensor, other_tensor):  # pylint: disable=unused-argument
