@@ -46,7 +46,7 @@ class ComplexMultiplicationONNX(ONNX):
     """This class is used as a simple wrapper over original complex multiplication function.
     Creates a single fused node in ONNX graph.
     """
-    
+
     @staticmethod
     def symbolic(g, input_tensor, other_tensor):
         """ONNX node definition for custom nodes."""
