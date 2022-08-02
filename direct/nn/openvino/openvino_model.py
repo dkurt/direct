@@ -1,8 +1,8 @@
 import io
 
-import torch
 from openvino_extensions import get_extensions_path
 from openvino.runtime import Core
+import torch
 from torch import nn
 
 
