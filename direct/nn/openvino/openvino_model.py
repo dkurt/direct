@@ -115,7 +115,7 @@ class OpenVINOModel(nn.Module):
                 self.inputs,
                 buf,
                 opset_version=12,
-                operator_export_type=torch.onnx.OperatorExportTypes.ONNX_FALLTHROUGH,
+                operator_export_type=torch.onnx.OperatorExportTypes.ONNX_ATEN_FALLBACK,
                 input_names=self.input_names,
                 output_names=output_names,
             )
